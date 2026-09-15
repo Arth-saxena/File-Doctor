@@ -195,16 +195,13 @@ function Home() {
     }
 
     try {
-      const response = await axios.post('http://127.0.0.1:8000/api/verify', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setResults(response.data);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || 'An error occurred during verification.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const response = await axios.post('/api/verify', formData);
+  setResults(response.data);
+} catch (err: any) {
+  setError(err.response?.data?.detail || 'An error occurred during verification.');
+} finally {
+  setLoading(false);
+}
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
