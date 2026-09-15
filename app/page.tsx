@@ -142,66 +142,67 @@ function Home() {
   };
 
   const handleUpload = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!file) return alert('Please select a file first.');
+  e.preventDefault();
+  if (!file) return alert('Please select a file first.');
 
-    setLoading(true);
-    setError(null);
-    setResults(null);
+  setLoading(true);
+  setError(null);
+  setResults(null);
 
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('preset', preset);
-    formData.append('file_type', isPresentation ? 'presentation' : 'document');
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('preset', preset);
+  formData.append('file_type', isPresentation ? 'presentation' : 'document');
 
-    formData.append('excluded_pages', excludedPages);
-    formData.append('check_text_justification', checkTextJustification.toString());
-    formData.append('target_alignment', targetAlignment);
+  formData.append('excluded_pages', excludedPages);
+  formData.append('check_text_justification', checkTextJustification.toString());
+  formData.append('target_alignment', targetAlignment);
 
-    if (isPresentation) {
-      formData.append('check_reading_order', checkReadingOrder.toString());
-      formData.append('check_boundary_overflow', checkBoundaryOverflow.toString());
-      formData.append('check_title_alignment', checkTitleAlignment.toString());
+  if (isPresentation) {
+    formData.append('check_reading_order', checkReadingOrder.toString());
+    formData.append('check_boundary_overflow', checkBoundaryOverflow.toString());
+    formData.append('check_title_alignment', checkTitleAlignment.toString());
 
-      if (preset === 'custom_ppt') {
-        formData.append('aspect_ratio', aspectRatio);
-        formData.append('title_slide_font', titleSlideFont);
-        formData.append('title_slide_font_size', titleSlideFontSize.toString());
-        formData.append('body_heading_font', bodyHeadingFont);
-        formData.append('body_heading_font_size', bodyHeadingFontSize.toString());
-        formData.append('body_slide_font', bodySlideFont);
-        formData.append('body_slide_font_size', bodySlideFontSize.toString());
-      }
-    } else if (preset === 'custom') {
-      formData.append('custom_title_font', customTitleFont);
-      formData.append('custom_title_size', customTitleSize.toString());
-      formData.append('custom_subtitle_font', customSubtitleFont);
-      formData.append('custom_subtitle_size', customSubtitleSize.toString());
-      formData.append('custom_subtitle_bold', customSubtitleBold.toString());
-
-      // Level 3 Heading (H3) Payload
-      formData.append('custom_subsub_font', customSubsubFont);
-      formData.append('custom_subsub_size', customSubsubSize.toString());
-      formData.append('custom_subsub_bold', customSubsubBold.toString());
-      formData.append('custom_subsub_italic', customSubsubItalic.toString());
-
-      formData.append('custom_font', customFont);
-      formData.append('custom_size', customSize.toString());
-      formData.append('custom_line_spacing', customLineSpacing.toString());
-      formData.append('custom_margin_top', customMarginTop.toString());
-      formData.append('custom_margin_bottom', customMarginBottom.toString());
-      formData.append('custom_margin_left', customMarginLeft.toString());
-      formData.append('custom_margin_right', customMarginRight.toString());
+    if (preset === 'custom_ppt') {
+      formData.append('aspect_ratio', aspectRatio);
+      formData.append('title_slide_font', titleSlideFont);
+      formData.append('title_slide_font_size', titleSlideFontSize.toString());
+      formData.append('body_heading_font', bodyHeadingFont);
+      formData.append('body_heading_font_size', bodyHeadingFontSize.toString());
+      formData.append('body_slide_font', bodySlideFont);
+      formData.append('body_slide_font_size', bodySlideFontSize.toString());
     }
+  } else if (preset === 'custom') {
+    formData.append('custom_title_font', customTitleFont);
+    formData.append('custom_title_size', customTitleSize.toString());
+    formData.append('custom_subtitle_font', customSubtitleFont);
+    formData.append('custom_subtitle_size', customSubtitleSize.toString());
+    formData.append('custom_subtitle_bold', customSubtitleBold.toString());
 
-    try {
-  const response = await axios.post('/api/verify', formData);
-  setResults(response.data);
-} catch (err: any) {
-  setError(err.response?.data?.detail || 'An error occurred during verification.');
-} finally {
-  setLoading(false);
-}
+    // Level 3 Heading (H3) Payload
+    formData.append('custom_subsub_font', customSubsubFont);
+    formData.append('custom_subsub_size', customSubsubSize.toString());
+    formData.append('custom_subsub_bold', customSubsubBold.toString());
+    formData.append('custom_subsub_italic', customSubsubItalic.toString());
+
+    formData.append('custom_font', customFont);
+    formData.append('custom_size', customSize.toString());
+    formData.append('custom_line_spacing', customLineSpacing.toString());
+    formData.append('custom_margin_top', customMarginTop.toString());
+    formData.append('custom_margin_bottom', customMarginBottom.toString());
+    formData.append('custom_margin_left', customMarginLeft.toString());
+    formData.append('custom_margin_right', customMarginRight.toString());
+  }
+
+  try {
+    const response = await axios.post('/api/verify', formData);
+    setResults(response.data);
+  } catch (err: any) {
+    setError(err.response?.data?.detail || 'An error occurred during verification.');
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
