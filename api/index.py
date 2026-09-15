@@ -1,7 +1,5 @@
 import io
 import re
-import os
-import shutil
 from typing import Optional, Set
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,9 +13,10 @@ from pptx.enum.text import PP_ALIGN
 
 app = FastAPI(title="Document & Presentation Compliance Auditor")
 
+# Enable CORS for local development and deployed frontend origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -295,7 +294,9 @@ def verify_presentation_deck(
     }
 
 
+# Dual decorators to catch requests with or without /api prefix
 @app.post("/api/verify")
+@app.post("/verify")
 async def verify_document(
     file: UploadFile = File(...),
     preset: str = Form(...),
