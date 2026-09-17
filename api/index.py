@@ -1,6 +1,6 @@
 import io
 import re
-from typing import Optional, Set
+from typing import Optional, Set, List, Dict, Any
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from docx import Document
@@ -10,6 +10,9 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 # Presentation Parser Imports
 from pptx import Presentation
 from pptx.enum.text import PP_ALIGN
+
+# PDF Parser Imports
+import pdfplumber
 
 app = FastAPI(title="Document & Presentation Compliance Auditor")
 
@@ -59,7 +62,9 @@ def is_true(val: Optional[str]) -> bool:
 def normalize_font_name(font_name: Optional[str]) -> str:
     if not font_name:
         return ""
-    return re.sub(r'\s*\([^)]*\)', '', font_name).strip()
+    # Strip PDF subset prefixes like ABCDEF+ and parenthetical variations
+    clean_name = re.sub(r'^[A-Z]{6}\+', '', font_name)
+    return re.sub(r'\s*\([^)]*\)', '', clean_name).strip()
 
 def parse_excluded_pages(pages_str: Optional[str]) -> Set[int]:
     """Parses inputs like '1, 2, 4-6' into a set of integers {1, 2, 4, 5, 6}."""
@@ -90,6 +95,281 @@ def get_column_count(section) -> int:
             return int(num)
     return 1
 
+
+def verify_pdf_document(
+    contents: bytes,
+    preset: str = "custom",
+    target_title_font: str = "Times New Roman",
+    target_title_size: float = 24.0,
+    target_subtitle_font: str = "Times New Roman",
+    target_subtitle_size: float = 14.0,
+    require_subtitle_bold: bool = True,
+    target_subsub_font: str = "Times New Roman",
+    target_subsub_size: float = 12.0,
+    require_subsub_bold: bool = True,
+    require_subsub_italic: bool = True,
+    target_font: str = "Times New Roman",
+    target_size: float = 12.0,
+    target_margins: Dict[str, float] = None,
+    target_cols: int = 1,
+    target_spacing: float = 1.15,
+    check_text_justification: bool = False,
+    target_alignment: str = "LEFT",
+    excluded_pages: Set[int] = set()
+):
+    if target_margins is None:
+        target_margins = {"top": 1.0, "bottom": 1.0, "left": 1.0, "right": 1.0}
+
+    # Use dict.fromkeys() as an ordered set to maintain sequence without duplicates
+    errors_dict = {}
+    passed = []
+    
+    title_clean = True
+    subtitle_clean = True
+    subsub_clean = True
+    font_clean = True
+    size_clean = True
+    spacing_clean = True
+    margin_clean = True
+    columns_clean = True
+    justification_clean = True
+    caption_clean = True
+    has_captions = False
+    has_subsubs = False
+    valid_pages = 0
+
+    preset_label = "PDF Custom Ruleset"
+    if preset == "ieee":
+        preset_label = "PDF IEEE Standard"
+    elif preset == "apa7":
+        preset_label = "PDF APA 7th Edition"
+
+    with pdfplumber.open(io.BytesIO(contents)) as pdf:
+        for idx in range(1, len(pdf.pages) + 1):
+            if idx in excluded_pages:
+                continue
+
+            page = pdf.pages[idx - 1]
+            valid_pages += 1
+            
+            # FIXED: Removed 'pts' and extract ordered words
+            words = page.extract_words(extra_attrs=["fontname", "size"])
+            if not words:
+                errors_dict[f"Page {idx}: Page appears empty or contains non-extractable scanned raster image text."] = None
+                continue
+
+            # Sort words top-to-bottom, left-to-right
+            words = sorted(words, key=lambda w: (round(w["top"], 1), w["x0"]))
+
+            # --- 1. Margin Constraints Audit ---
+            page_w_in = page.width / 72.0
+            page_h_in = page.height / 72.0
+            
+            min_x = min(w["x0"] for w in words) / 72.0
+            max_x = max(w["x1"] for w in words) / 72.0
+            top_y = min(w["top"] for w in words) / 72.0
+            bot_y = max(w["bottom"] for w in words) / 72.0
+
+            actual_margins = {
+                "top": top_y,
+                "bottom": page_h_in - bot_y,
+                "left": min_x,
+                "right": page_w_in - max_x
+            }
+
+            for side, expected in target_margins.items():
+                if actual_margins[side] < (expected - 0.15):
+                    errors_dict[f"Page {idx} [{side.capitalize()} Margin]: Content margin is {actual_margins[side]:.2f}\" (expected ~{expected}\")."] = None
+                    margin_clean = False
+
+            # --- 2. Column Detection Audit ---
+            page_midpoint = page.width / 2.0
+            left_col_words = [w for w in words if w["x1"] < page_midpoint]
+            right_col_words = [w for w in words if w["x0"] > page_midpoint]
+            detected_cols = 2 if (len(left_col_words) > 15 and len(right_col_words) > 15) else 1
+
+            if detected_cols != target_cols:
+                errors_dict[f"Page {idx} [Layout]: Expected {target_cols}-column layout, but detected {detected_cols}-column layout."] = None
+                columns_clean = False
+
+            # Group words into visual lines
+            lines_dict = {}
+            for w in words:
+                top_key = round(w["top"], 1)
+                lines_dict.setdefault(top_key, []).append(w)
+
+            # Sort lines deterministically from top to bottom
+            sorted_top_keys = sorted(lines_dict.keys())
+            
+            # --- 3. Line Spacing Audit ---
+            if len(sorted_top_keys) > 1:
+                gaps = [sorted_top_keys[i+1] - sorted_top_keys[i] for i in range(len(sorted_top_keys)-1)]
+                avg_gap = sum(gaps) / len(gaps)
+                expected_gap_pt = target_size * target_spacing * 1.15
+                if abs(avg_gap - expected_gap_pt) > 5.0:
+                    errors_dict[f"Page {idx} [Line Spacing]: Estimated spacing gap is ~{avg_gap:.1f}pt (expected ~{expected_gap_pt:.1f}pt for {target_spacing}x)."] = None
+                    spacing_clean = False
+
+            # Process each text line
+            for line_idx, top_key in enumerate(sorted_top_keys, start=1):
+                line_words = sorted(lines_dict[top_key], key=lambda x: x["x0"])
+                line_text = " ".join(w["text"] for w in line_words).strip()
+                if not line_text:
+                    continue
+
+                snippet = line_text[:25] + "..." if len(line_text) > 25 else line_text
+                location_tag = f"Page {idx}, Line {line_idx} ('{snippet}')"
+
+                fonts_in_line = [normalize_font_name(w.get("fontname", "")) for w in line_words if w.get("fontname")]
+                sizes_in_line = [w.get("size", target_size) for w in line_words if w.get("size")]
+                
+                avg_size = sum(sizes_in_line) / len(sizes_in_line) if sizes_in_line else target_size
+                is_bold_line = any("bold" in f.lower() or "black" in f.lower() or "heavy" in f.lower() for f in fonts_in_line)
+                is_italic_line = any("italic" in f.lower() or "oblique" in f.lower() for f in fonts_in_line)
+
+                text_clean_str = line_text.lower().strip()
+                is_chapter_line = bool(re.match(r'^chapter\s+([0-9]+|[ivxdlcms]+|\w+)', text_clean_str))
+                is_numbered_subsub = bool(re.match(r'^\d+(?:\.\d+){2,}\.?\s*\w+|^[a-zA-Za-z]\.|\(?[a-zA-Za-z0-9]+\)\s*\w+', text_clean_str))
+                is_numbered_sub = bool(re.match(r'^\d+\.\d+\.?(?!\d|\.)\s*\w+', text_clean_str))
+                is_reference_line = bool(re.match(r'^\[\d+(?:--?\d+)?\]', text_clean_str))
+                is_all_caps = line_text.isupper() and len(line_text) <= 65 and not line_text.endswith(('.', ';', ':'))
+
+                # Caption Detection
+                caption_match = re.match(r'^(figure|fig\.|table)\s*[\d\.\w]+(.*)', text_clean_str)
+                is_caption = False
+                if caption_match:
+                    remainder = caption_match.group(2).strip()
+                    if not remainder.startswith(BODY_REFERENCE_VERBS):
+                        if remainder == "" or remainder.startswith((':', '-', '.', '—', '–')) or len(line_text) <= 80:
+                            is_caption = True
+
+                # Classification Logic
+                is_title = not is_caption and not is_reference_line and not is_numbered_sub and not is_numbered_subsub and (
+                    is_chapter_line or
+                    (idx == 1 and line_idx <= 3 and abs(avg_size - target_title_size) < 2.0) or
+                    (is_all_caps and abs(avg_size - target_title_size) < 2.0)
+                )
+
+                is_subsubheading = not is_caption and not is_reference_line and not is_title and (
+                    is_numbered_subsub or
+                    (abs(avg_size - target_subsub_size) < 1.0 and (not require_subsub_bold or is_bold_line) and (not require_subsub_italic or is_italic_line) and not is_numbered_sub)
+                )
+
+                is_subheading = not is_caption and not is_reference_line and not is_title and not is_subsubheading and (
+                    is_numbered_sub or
+                    text_clean_str in KNOWN_HEADINGS or
+                    (len(line_text) <= 80 and is_bold_line and not line_text.endswith(('.', ';', ':', ',')))
+                )
+
+                # --- 4. Alignment & Justification Audit ---
+                line_left = min(w["x0"] for w in line_words)
+                line_right = max(w["x1"] for w in line_words)
+                col_left_boundary = page.width * 0.05 if target_cols == 1 else (page.width * 0.05 if line_right < page_midpoint else page_midpoint)
+                col_right_boundary = page.width * 0.95 if target_cols == 1 else (page_midpoint if line_right < page_midpoint else page.width * 0.95)
+                
+                is_centered = abs((line_left + line_right)/2.0 - page_midpoint) < 20.0
+                is_justified = (line_left - col_left_boundary < 15.0) and (col_right_boundary - line_right < 15.0)
+
+                if is_caption:
+                    has_captions = True
+                    if not is_centered:
+                        errors_dict[f"{location_tag} [Caption]: Caption must be center-aligned."] = None
+                        caption_clean = False
+
+                elif is_title:
+                    for font_name in fonts_in_line:
+                        if font_name and target_title_font.lower() not in font_name.lower():
+                            errors_dict[f"{location_tag} [Title]: Font '{font_name}' does not match target title font '{target_title_font}'."] = None
+                            title_clean = False
+                            break
+                    if abs(avg_size - target_title_size) > 1.5:
+                        errors_dict[f"{location_tag} [Title]: Font size {avg_size:.1f}pt does not match target title size {target_title_size}pt."] = None
+                        title_clean = False
+
+                elif is_subsubheading:
+                    has_subsubs = True
+                    if require_subsub_bold and not is_bold_line:
+                        errors_dict[f"{location_tag} [Sub-subheading]: Level 3 subheadings are required to be Bold."] = None
+                        subsub_clean = False
+                    if require_subsub_italic and not is_italic_line:
+                        errors_dict[f"{location_tag} [Sub-subheading]: Level 3 subheadings are required to be Italic."] = None
+                        subsub_clean = False
+
+                    for font_name in fonts_in_line:
+                        if font_name and target_subsub_font.lower() not in font_name.lower():
+                            errors_dict[f"{location_tag} [Sub-subheading]: Font '{font_name}' does not match target font '{target_subsub_font}'."] = None
+                            subsub_clean = False
+                            break
+
+                elif is_subheading:
+                    if require_subtitle_bold and not is_bold_line:
+                        errors_dict[f"{location_tag} [Subheading]: Subheadings are required to be Bold."] = None
+                        subtitle_clean = False
+
+                    for font_name in fonts_in_line:
+                        if font_name and target_subtitle_font.lower() not in font_name.lower():
+                            errors_dict[f"{location_tag} [Subheading]: Font '{font_name}' does not match target heading font '{target_subtitle_font}'."] = None
+                            subtitle_clean = False
+                            break
+
+                else:
+                    # Body Text
+                    if check_text_justification:
+                        if target_alignment.upper() == "JUSTIFY" and not is_justified and len(line_words) > 4:
+                            errors_dict[f"{location_tag}: Text line is not using required JUSTIFY alignment."] = None
+                            justification_clean = False
+                        elif target_alignment.upper() == "CENTER" and not is_centered:
+                            errors_dict[f"{location_tag}: Text line is not using required CENTER alignment."] = None
+                            justification_clean = False
+
+                    for font_name in fonts_in_line:
+                        if font_name and target_font.lower() not in font_name.lower():
+                            errors_dict[f"{location_tag}: Font '{font_name}' does not match target body font '{target_font}'."] = None
+                            font_clean = False
+                            break
+
+                    if abs(avg_size - target_size) > 1.5:
+                        errors_dict[f"{location_tag}: Font size {avg_size:.1f}pt does not match target body size {target_size}pt."] = None
+                        size_clean = False
+
+    # Summary of Passed Checks
+    if margin_clean and valid_pages > 0:
+        passed.append("Page margins comply with specification.")
+    if columns_clean and valid_pages > 0:
+        passed.append(f"Layout geometry matches {target_cols}-column specification.")
+    if title_clean and valid_pages > 0:
+        passed.append(f"Document Title typography matches target ({target_title_font}, {target_title_size}pt).")
+    if subtitle_clean and valid_pages > 0:
+        passed.append(f"Subheadings/Section Headers match target ({target_subtitle_font}, {target_subtitle_size}pt{' Bold' if require_subtitle_bold else ''}).")
+    if has_subsubs and subsub_clean:
+        styles = []
+        if require_subsub_bold:
+            styles.append("Bold")
+        if require_subsub_italic:
+            styles.append("Italic")
+        style_str = f" ({', '.join(styles)})" if styles else ""
+        passed.append(f"Sub-subheadings match target ({target_subsub_font}, {target_subsub_size}pt{style_str}).")
+    if has_captions and caption_clean:
+        passed.append("Table and Figure captions comply with required center alignment.")
+    if spacing_clean and valid_pages > 0:
+        passed.append(f"Line spacing matches target standard ({target_spacing}x).")
+    if check_text_justification and justification_clean and valid_pages > 0:
+        passed.append(f"Paragraph alignment complies with required setting ({target_alignment}).")
+    if font_clean and valid_pages > 0:
+        passed.append(f"Typography matches target font family ({target_font}).")
+    if size_clean and valid_pages > 0:
+        passed.append(f"Font size matches target standard ({target_size} pt).")
+
+    errors = list(errors_dict.keys())
+    total_checks = len(errors) + len(passed)
+    score = 100 if total_checks == 0 else int((len(passed) / total_checks) * 100)
+
+    return {
+        "preset_name": preset_label,
+        "compliance_score": score,
+        "errors": errors,  # FIXED: Preserves page/line order without random set shuffling
+        "passed": passed
+    }
 
 def verify_presentation_deck(
     contents: bytes,
@@ -342,6 +622,71 @@ async def verify_document(
     contents = await file.read()
     excluded_set = parse_excluded_pages(excluded_pages)
 
+    # Configure target parameters based on preset selection
+    if preset == "custom":
+        target_title_font = custom_title_font or "Times New Roman"
+        target_title_size = custom_title_size or 24.0
+        
+        target_subtitle_font = custom_subtitle_font or "Times New Roman"
+        target_subtitle_size = custom_subtitle_size or 14.0
+        require_subtitle_bold = is_true(custom_subtitle_bold)
+        
+        target_subsub_font = custom_subsub_font or "Times New Roman"
+        target_subsub_size = custom_subsub_size or 12.0
+        require_subsub_bold = is_true(custom_subsub_bold)
+        require_subsub_italic = is_true(custom_subsub_italic)
+
+        target_font = custom_font or "Times New Roman"
+        target_size = custom_size or 12.0
+        target_margins = {
+            "top": custom_margin_top or 1.0, 
+            "bottom": custom_margin_bottom or 1.0, 
+            "left": custom_margin_left or 1.0, 
+            "right": custom_margin_right or 1.0
+        }
+        target_cols = 1
+        target_spacing = custom_line_spacing or 1.15
+        
+    elif preset == "ieee":
+        # Correct IEEE Standard Specifications
+        target_title_font = "Times New Roman"
+        target_title_size = 24.0
+        
+        target_subtitle_font = "Times New Roman"
+        target_subtitle_size = 10.0
+        require_subtitle_bold = True
+        
+        target_subsub_font = "Times New Roman"
+        target_subsub_size = 10.0
+        require_subsub_bold = False
+        require_subsub_italic = True
+
+        target_font = "Times New Roman"
+        target_size = 10.0
+        target_margins = {"top": 0.75, "bottom": 0.75, "left": 0.625, "right": 0.625}
+        target_cols = 2
+        target_spacing = 1.0
+        
+    elif preset == "apa7":
+        # Correct APA 7th Edition Specifications
+        target_title_font = "Times New Roman"
+        target_title_size = 12.0
+        
+        target_subtitle_font = "Times New Roman"
+        target_subtitle_size = 12.0
+        require_subtitle_bold = True
+        
+        target_subsub_font = "Times New Roman"
+        target_subsub_size = 12.0
+        require_subsub_bold = True
+        require_subsub_italic = True
+
+        target_font = "Times New Roman"
+        target_size = 12.0
+        target_margins = {"top": 1.0, "bottom": 1.0, "left": 1.0, "right": 1.0}
+        target_cols = 1
+        target_spacing = 2.0
+
     if filename.endswith(('.ppt', '.pptx')) or file_type == "presentation":
         try:
             return verify_presentation_deck(
@@ -360,70 +705,39 @@ async def verify_document(
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Failed to parse presentation file: {str(e)}")
 
+    elif filename.endswith('.pdf') or file_type == "pdf":
+        try:
+            return verify_pdf_document(
+                contents=contents,
+                preset=preset,
+                target_title_font=target_title_font,
+                target_title_size=target_title_size,
+                target_subtitle_font=target_subtitle_font,
+                target_subtitle_size=target_subtitle_size,
+                require_subtitle_bold=require_subtitle_bold,
+                target_subsub_font=target_subsub_font,
+                target_subsub_size=target_subsub_size,
+                require_subsub_bold=require_subsub_bold,
+                require_subsub_italic=require_subsub_italic,
+                target_font=target_font,
+                target_size=target_size,
+                target_margins=target_margins,
+                target_cols=target_cols,
+                target_spacing=target_spacing,
+                check_text_justification=is_true(check_text_justification),
+                target_alignment=target_alignment or "LEFT",
+                excluded_pages=excluded_set
+            )
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to parse PDF file: {str(e)}")
+
     elif filename.endswith('.docx'):
         try:
             doc = Document(io.BytesIO(contents))
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Failed to parse .docx file: {str(e)}")
 
-        # Configure targets based on preset
-        if preset == "custom":
-            target_title_font = custom_title_font or "Times New Roman"
-            target_title_size = custom_title_size or 24.0
-            
-            target_subtitle_font = custom_subtitle_font or "Times New Roman"
-            target_subtitle_size = custom_subtitle_size or 14.0
-            require_subtitle_bold = is_true(custom_subtitle_bold)
-            
-            target_subsub_font = custom_subsub_font or "Times New Roman"
-            target_subsub_size = custom_subsub_size or 12.0
-            require_subsub_bold = is_true(custom_subsub_bold)
-            require_subsub_italic = is_true(custom_subsub_italic)
-
-            target_font = custom_font or "Times New Roman"
-            target_size = custom_size or 12.0
-            target_margins = {"top": custom_margin_top or 1.0, "bottom": custom_margin_bottom or 1.0, "left": custom_margin_left or 1.0, "right": custom_margin_right or 1.0}
-            target_cols = 1
-            target_spacing = custom_line_spacing or 1.15
-            preset_label = "Custom Ruleset"
-            
-        elif preset == "ieee":
-            target_title_font = "Times New Roman"
-            target_title_size = 24.0
-            target_subtitle_font = "Times New Roman"
-            target_subtitle_size = 10.0
-            require_subtitle_bold = False
-            
-            target_subsub_font = "Times New Roman"
-            target_subsub_size = 10.0
-            require_subsub_bold = False
-            require_subsub_italic = True
-
-            target_font = "Times New Roman"
-            target_size = 10.0
-            target_margins = {"top": 0.75, "bottom": 0.75, "left": 0.625, "right": 0.625}
-            target_cols = 2
-            target_spacing = 1.0
-            preset_label = "IEEE Standard"
-            
-        else:  # APA 7
-            target_title_font = "Times New Roman"
-            target_title_size = 12.0
-            target_subtitle_font = "Times New Roman"
-            target_subtitle_size = 12.0
-            require_subtitle_bold = True
-            
-            target_subsub_font = "Times New Roman"
-            target_subsub_size = 12.0
-            require_subsub_bold = True
-            require_subsub_italic = True
-
-            target_font = "Times New Roman"
-            target_size = 12.0
-            target_margins = {"top": 1.0, "bottom": 1.0, "left": 1.0, "right": 1.0}
-            target_cols = 1
-            target_spacing = 2.0
-            preset_label = "APA 7th Edition"
+        preset_label = "Custom Ruleset" if preset == "custom" else ("IEEE Standard" if preset == "ieee" else "APA 7th Edition")
 
         errors = []
         passed = []
@@ -732,5 +1046,5 @@ async def verify_document(
     else:
         raise HTTPException(
             status_code=400, 
-            detail="Unsupported file format. Please upload a .docx, .ppt, or .pptx file."
+            detail="Unsupported file format. Please upload a .docx, .ppt, .pptx, or .pdf file."
         )

@@ -367,94 +367,96 @@ function Home() {
                 </div>
               </div>
 
-              {/* 4. Text Justification & Alignment Control Panel */}
-              <div className="p-5 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
-                <div className="flex items-center space-x-2 text-slate-700 font-semibold text-sm border-b pb-2">
-                  <AlignLeft className="w-4 h-4 text-blue-600" />
-                  <span>Text Justification & Alignment Controls</span>
-                </div>
+{/* 4. Text Justification & Alignment Control Panel (Visible only when preset is custom) */}
+{(preset === 'custom' || preset === 'custom_ppt') && (
+  <div className="p-5 bg-slate-50 border border-slate-200 rounded-xl space-y-4">
+    <div className="flex items-center space-x-2 text-slate-700 font-semibold text-sm border-b pb-2">
+      <AlignLeft className="w-4 h-4 text-blue-600" />
+      <span>Text Justification & Alignment Controls</span>
+    </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <label className="flex items-center space-x-2.5 text-xs font-semibold text-slate-700 cursor-pointer bg-white p-3 rounded-lg border border-slate-200 shadow-2xs hover:bg-slate-50">
-                    <input 
-                      type="checkbox" 
-                      checked={checkTextJustification} 
-                      onChange={(e) => setCheckTextJustification(e.target.checked)}
-                      className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4" 
-                    />
-                    <div>
-                      <span className="block text-slate-900 font-bold">Enforce Text Alignment</span>
-                      <span className="block text-[10px] text-slate-400 font-normal">Check paragraph text alignment</span>
-                    </div>
-                  </label>
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <label className="flex items-center space-x-2.5 text-xs font-semibold text-slate-700 cursor-pointer bg-white p-3 rounded-lg border border-slate-200 shadow-2xs hover:bg-slate-50">
+        <input 
+          type="checkbox" 
+          checked={checkTextJustification} 
+          onChange={(e) => setCheckTextJustification(e.target.checked)}
+          className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4" 
+        />
+        <div>
+          <span className="block text-slate-900 font-bold">Enforce Text Alignment</span>
+          <span className="block text-[10px] text-slate-400 font-normal">Check paragraph text alignment</span>
+        </div>
+      </label>
 
-                  {checkTextJustification && (
-                    <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-slate-200 shadow-2xs">
-                      <span className="text-xs font-bold text-slate-900">Target Alignment:</span>
-                      <select 
-                        value={targetAlignment}
-                        onChange={(e) => setTargetAlignment(e.target.value)}
-                        className="text-xs p-1.5 bg-slate-50 border border-slate-300 rounded-lg font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
-                      >
-                        <option value="LEFT">Left Aligned</option>
-                        <option value="JUSTIFY">Fully Justified</option>
-                        <option value="CENTER">Centered</option>
-                        <option value="RIGHT">Right Aligned</option>
-                      </select>
-                    </div>
-                  )}
-                </div>
+      {checkTextJustification && (
+        <div className="flex items-center justify-between bg-white p-3 rounded-lg border border-slate-200 shadow-2xs">
+          <span className="text-xs font-bold text-slate-900">Target Alignment:</span>
+          <select 
+            value={targetAlignment}
+            onChange={(e) => setTargetAlignment(e.target.value)}
+            className="text-xs p-1.5 bg-slate-50 border border-slate-300 rounded-lg font-medium text-slate-700 focus:ring-2 focus:ring-blue-500 outline-none cursor-pointer"
+          >
+            <option value="LEFT">Left Aligned</option>
+            <option value="JUSTIFY">Fully Justified</option>
+            <option value="CENTER">Centered</option>
+            <option value="RIGHT">Right Aligned</option>
+          </select>
+        </div>
+      )}
+    </div>
 
-                {/* Additional Slide-Only Controls */}
-                {isPresentation && (
-                  <div className="pt-3 border-t border-slate-200 space-y-3">
-                    <div className="flex items-center space-x-2 text-slate-700 font-semibold text-xs">
-                      <Move className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Presentation Slide Layout Controls</span>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <label className="flex items-center space-x-2.5 text-xs font-semibold text-slate-700 cursor-pointer bg-white p-3 rounded-lg border border-slate-200 shadow-2xs hover:bg-slate-50">
-                        <input 
-                          type="checkbox" 
-                          checked={checkReadingOrder} 
-                          onChange={(e) => setCheckReadingOrder(e.target.checked)}
-                          className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4" 
-                        />
-                        <div>
-                          <span className="block text-slate-900 font-bold">Vertical Order</span>
-                          <span className="block text-[10px] text-slate-400 font-normal">Title top-most</span>
-                        </div>
-                      </label>
+    {/* Additional Slide-Only Controls */}
+    {isPresentation && (
+      <div className="pt-3 border-t border-slate-200 space-y-3">
+        <div className="flex items-center space-x-2 text-slate-700 font-semibold text-xs">
+          <Move className="w-3.5 h-3.5 text-blue-600" />
+          <span>Presentation Slide Layout Controls</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <label className="flex items-center space-x-2.5 text-xs font-semibold text-slate-700 cursor-pointer bg-white p-3 rounded-lg border border-slate-200 shadow-2xs hover:bg-slate-50">
+            <input 
+              type="checkbox" 
+              checked={checkReadingOrder} 
+              onChange={(e) => setCheckReadingOrder(e.target.checked)}
+              className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4" 
+            />
+            <div>
+              <span className="block text-slate-900 font-bold">Vertical Order</span>
+              <span className="block text-[10px] text-slate-400 font-normal">Title top-most</span>
+            </div>
+          </label>
 
-                      <label className="flex items-center space-x-2.5 text-xs font-semibold text-slate-700 cursor-pointer bg-white p-3 rounded-lg border border-slate-200 shadow-2xs hover:bg-slate-50">
-                        <input 
-                          type="checkbox" 
-                          checked={checkBoundaryOverflow} 
-                          onChange={(e) => setCheckBoundaryOverflow(e.target.checked)}
-                          className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4" 
-                        />
-                        <div>
-                          <span className="block text-slate-900 font-bold">Boundary Check</span>
-                          <span className="block text-[10px] text-slate-400 font-normal">Canvas overflow</span>
-                        </div>
-                      </label>
+          <label className="flex items-center space-x-2.5 text-xs font-semibold text-slate-700 cursor-pointer bg-white p-3 rounded-lg border border-slate-200 shadow-2xs hover:bg-slate-50">
+            <input 
+              type="checkbox" 
+              checked={checkBoundaryOverflow} 
+              onChange={(e) => setCheckBoundaryOverflow(e.target.checked)}
+              className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4" 
+            />
+            <div>
+              <span className="block text-slate-900 font-bold">Boundary Check</span>
+              <span className="block text-[10px] text-slate-400 font-normal">Canvas overflow</span>
+            </div>
+          </label>
 
-                      <label className="flex items-center space-x-2.5 text-xs font-semibold text-slate-700 cursor-pointer bg-white p-3 rounded-lg border border-slate-200 shadow-2xs hover:bg-slate-50">
-                        <input 
-                          type="checkbox" 
-                          checked={checkTitleAlignment} 
-                          onChange={(e) => setCheckTitleAlignment(e.target.checked)}
-                          className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4" 
-                        />
-                        <div>
-                          <span className="block text-slate-900 font-bold">Header Uniformity</span>
-                          <span className="block text-[10px] text-slate-400 font-normal">Header specs</span>
-                        </div>
-                      </label>
-                    </div>
-                  </div>
-                )}
-              </div>
+          <label className="flex items-center space-x-2.5 text-xs font-semibold text-slate-700 cursor-pointer bg-white p-3 rounded-lg border border-slate-200 shadow-2xs hover:bg-slate-50">
+            <input 
+              type="checkbox" 
+              checked={checkTitleAlignment} 
+              onChange={(e) => setCheckTitleAlignment(e.target.checked)}
+              className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4" 
+            />
+            <div>
+              <span className="block text-slate-900 font-bold">Header Uniformity</span>
+              <span className="block text-[10px] text-slate-400 font-normal">Header specs</span>
+            </div>
+          </label>
+        </div>
+      </div>
+    )}
+  </div>
+)}
 
               {/* 5. INDEPENDENT TITLE, SUB-HEADING & BODY SLIDE CUSTOM SETTINGS */}
               {isPresentation && preset === 'custom_ppt' && (
